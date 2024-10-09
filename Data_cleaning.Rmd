@@ -101,7 +101,7 @@ straw_cen <- straw_cen |> drop_one_value_col()
 straw_sur <- strawberry |> filter(Program == "SURVEY")
 straw_sur <- straw_sur %>%  drop_one_value_col()
 
-nrow(strawberry) == (nrow(strw_b_chem) + nrow(strw_b_sales))
+nrow(strawberry) == (nrow(straw_sur) + nrow(straw_cen))
 
 ## Move marketing-related rows in strw_b_chem 
 ## to strw_b_sales
@@ -178,7 +178,7 @@ Our survey data now looks pretty clean
 
 And we can move on to the Census data 
 
-Seperate Data Item 
+We again see that Data Item column in this data frame contains multiple information. 
 
 ```{r}
 #| label: straw_cen split cols
@@ -193,7 +193,7 @@ straw_cen <- straw_cen |>
                        )
 ```
 
-Isolate Organic 
+We now want to create a table of just the "organic" strawberry sales, so we can isolate this from the main table and create a table called organic_cen. We do this by creating an organic column in our straw_cen data frame and then filter by the word "ORGANIC" within that column. We can then see that that column just contains two categories, NA and Organic. So once we seperate the organic rows out, the only rows left are NA, which we will be able to drop using out function. 
 
 ```{r}
 #| label: isolate organic
@@ -236,7 +236,7 @@ straw_cen <- straw_cen[(is.na(straw_cen$ORGANIC)),]
 straw_cen <- straw_cen |> drop_one_value_col()
 ```
 
-Make Bearning Type 
+Now we can split the category column in straw_cen into two columns. Measure and bearing to organize the bearing type. 
 
 ```{r}
 #| label: explore straw_cen$Category
@@ -256,7 +256,7 @@ straw_cen$COL2 <- str_replace(straw_cen$COL2,"WITH ","")
 straw_cen <- straw_cen |> rename(Measure = COL1, Bearing_type= COL2)
 ```
 
-Split Domain category 
+Next, we see the column "Domain Category" again contains lots of informatiomn (as it did in the straw_sur data frame). We can seperate this into two columns called domain and area grown. 
 
 ```{r}
 #| label: explore straw_cen$Domain & Domain Category
@@ -272,26 +272,27 @@ straw_cen$size_bracket <- str_replace(straw_cen$size_bracket, "NOT SPECIFIED", "
 straw_cen$size_bracket <- str_replace(straw_cen$size_bracket, "AREA GROWN: ", "")
 ```
 
-
+Now onto the organic census data. First lets drop all the one value columns
 
 ```{r}
 organic_cen <- organic_cen |> drop_one_value_col()
 
 ```
-clean "Category" column
+Now we can clean "Category" column similar to how we cleaned it with the straw_sur data. By splitting the columns at the word measure. 
 
 ```{r}
 organic_cen <- organic_cen %>%
   separate(Category, into = c("Category", "measurement"), sep = " MEASURED ", extra = "merge", fill = "right")
 ```
 
-get rid of commas and 'IN"
+get rid of commas and 'IN" from thie new columnso it is just units again. 
 
 ```{r}
 organic_cen$Category <- gsub(",", "", organic_cen$Category)
 organic_cen$measurement <- gsub("IN", "", organic_cen$measurement, ignore.case = TRUE)
 ```
 
+We now have three cleaned tables. One called straw_sur with chemical data, one called straw_cen with non-organic sales data, and one called organic_cen with organic sales data. 
 
 ## plots
 
