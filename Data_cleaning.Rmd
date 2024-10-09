@@ -1,0 +1,340 @@
+---
+title: "Data Cleaning Presentation"
+author: "Jonathan Neimann"
+date: "2024-10-02"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#| label: load libraries and set options
+#| warning: false
+#| message: false
+
+library(knitr)  
+library(kableExtra)
+library(tidyverse)
+library(stringr)
+
+options(echo = FALSE, digits = 3, 
+        scipen = 999, warn = FALSE, message = FALSE)
+```
+
+We start by loading in the data set
+```{r}
+strawberry <- read_csv("strawberries25_v3.csv", col_names = TRUE)
+
+```
+Now we check to make sure that every row is associated with a state. 
+```{r}
+#| label: explore organization 1 
+
+
+## Is every line associated with a state?
+
+state_all <- strawberry |> distinct(State)
+
+state_all1 <- strawberry |> group_by(State) |> count()
+
+## every row is associated with a state
+
+if(sum(state_all1$n) == dim(strawberry)[1]){print("Yes every row in the data is associated with a state.")}
+
+## rm(state_all, state_all1)
+```
+Since the data set has some columns that are all NA, we can create a function that removes columns with only a singular item. We call this function drop_one_value_col
+```{r}
+#|label: function def - drop 1-item columns
+
+drop_one_value_col <- function(df){   ## takes whole dataframe
+drop <- NULL  
+
+## test each column for a single value
+for(i in 1:dim(df)[2]){  
+if((df |> distinct(df[,i]) |> count()) == 1){
+drop = c(drop, i)
+} }
+
+## report the result -- names of columns dropped
+## consider using the column content for labels 
+## or headers 
+
+if(is.null(drop)){return("none")}else{
+
+   print("Columns dropped:")
+   print(colnames(df)[drop])
+   strawberry <- df[, -1*drop]
+   }
+}
+
+
+## use the function
+
+strawberry <- drop_one_value_col(strawberry)
+
+drop_one_value_col(strawberry)
+```
+We can look at the data and see that the county level in the 'Geo Level' column doesn't really tell us much about the data, so we can drop it.
+
+```{r}
+#| label: ditch the counties
+
+unique(strawberry$`Geo Level`)
+
+strawberry <- strawberry |> 
+  filter(`Geo Level`== "NATIONAL" | `Geo Level`== "STATE")
+```
+
+## now examine the rest of the columns
+
+We can see that the data is split into two main categories under the 'Program Column'. There is CENSUS data which deals with strawberry sales, and SURVEY data that deals with the chemicals used for the strawberries. We can split these into two different data rames called straw_cem for CENSUS data and straw_sur for SURVEY data. 
+
+
+
+
+```{r}
+#|label: split srawberry into census and survey pieces
+
+straw_cen <- strawberry |> filter(Program=="CENSUS")
+straw_cen <- straw_cen |> drop_one_value_col()
+
+straw_sur <- strawberry |> filter(Program == "SURVEY")
+straw_sur <- straw_sur %>%  drop_one_value_col()
+
+nrow(strawberry) == (nrow(strw_b_chem) + nrow(strw_b_sales))
+
+## Move marketing-related rows in strw_b_chem 
+## to strw_b_sales
+
+
+```
+
+Now lets look at the survey data first and examine it. We notice that the column 'Domain Category' contains a lot of information. Namely the fact there's a chemical involved, the chemical's use, it's name and it's associated number. We can start by splitting the chemical name and number into two columns named chemical_name and chemical_num. 
+
+```{r}
+straw_sur <- straw_sur %>%
+  mutate(`Domain Category` = gsub(".*: \\(([^=]+) = ([0-9]+)\\)", "\\1,\\2", `Domain Category`)) %>%
+  separate(`Domain Category`, into = c("chemical_name", "chemical_num"), sep = ",") %>%
+  mutate(chemical_name = trimws(chemical_name),  # Remove leading/trailing whitespace
+         chemical_num = as.numeric(trimws(chemical_num)))  # Convert chemical_num to numeric
+```
+
+That looks better but we still have a column "domain" that contains multiple information pieces. Namely weather it's a chemical and it's use. We can split that up to a domain column and a use column. We will keep the domain column because there are some rows that contain "total' data marked in this column as well. 
+```{r}
+straw_sur <- straw_sur %>%
+  separate(Domain, into = c("Domain", "use"), sep = ",", extra = "merge")
+```
+Now that Domain Category is taken care of, there is another column that contains lot's of information called "Data Item". This column tells us mostly what we are easuring in the "value column". I would like to make these measurement units their own column called measurement. So we can use the mutate function to split the columns at the word MEASURED which appears on all the rows that contain measurements. 
+
+This column also contains a category that they are processed. Such as processing, fresh market or production. We are also going to make this it's own column by seperating at the - sign. 
+```{r}
+straw_sur <- straw_sur %>%
+  # First, extract the measurement portion and remove it from Data Item
+  mutate(measurement = str_extract(`Data Item`, "(?<=MEASURED\\s).*")) %>%
+  mutate(`Data Item` = str_remove(`Data Item`, "MEASURED.*")) %>%
+  
+  # Now, separate the Data Item into Data Item and category based on the first comma or hyphen
+  separate(`Data Item`, into = c("Data Item", "category"), sep = "[,-]", extra = "merge", fill = "right")
+
+#seperate_wider_delimiter
+```
+
+We notice our measurement column got moved to the end of the data frame with the mutate function, so let's moce that to be placed after 'Category" so it makes sense. 
+
+```{r}
+straw_sur <- straw_sur %>%
+  select(1:7, 13, 8:12)
+```
+ 
+We also see the measurement column contains some excess words (IN). So let's get rid of that as well so the column just displays units. 
+```{r}
+straw_sur <- straw_sur %>%
+  mutate(measurement = gsub("\\bIN\\b", "", measurement)) %>%  # Remove "IN" as a whole word
+  mutate(measurement = trimws(measurement))  # Remove leading/trailing whitespace
+```
+ 
+We also see that our value column is at the end, it makes more sense to me to put it after measurement so will move it there. 
+ 
+```{r}
+straw_sur <- straw_sur %>%
+  select(1:8, 13, 9:12)
+```
+ 
+Now our data item column only contains one value (strawberries). However by using the unique function we see some of these have a space after and some of them don't. So we can't use out drop_one_value function because R is registering it as two values. So we can just drop the whole column altogether with a pipe. 
+
+```{r}
+straw_sur <- straw_sur %>%
+  select(-`Data Item`)
+
+```
+
+Checking through the data. We realize the "Category" Column has some unnecessary commas at the end of the calues. We can get rid of those. 
+
+```{r}
+straw_sur$category <- gsub(",", "", straw_sur$category)
+```
+
+Our survey data now looks pretty clean
+
+And we can move on to the Census data 
+
+Seperate Data Item 
+
+```{r}
+#| label: straw_cen split cols
+
+straw_cen <- straw_cen |>
+  separate_wider_delim(  cols = `Data Item`,
+                         delim = " - ",
+                         names = c("strawberries",
+                                 "Category"),
+                         too_many = "error",
+                         too_few = "align_start"
+                       )
+```
+
+Isolate Organic 
+
+```{r}
+#| label: isolate organic
+
+# 
+# unique(straw_cen$strawberries)
+# straw_cen$strawberries |> str_which("STRAWBERRIES") |> length()
+# straw_cen$strawberries |> str_which("STRAWBERRIES, ORGANIC") |> length()
+# straw_cen$strawberries |> str_which("STRAWBERRIES, ORGANIC, FRESH MARKET") |> length()
+# straw_cen$strawberries |> str_which("STRAWBERRIES, ORGANIC, PROCESSING" ) |> length()
+# 
+# ## count the cases
+# straw_cen$strawberries |> str_which("ORGANIC") |> length()
+# straw_cen$strawberries |> str_which("FRESH MARKET") |> length()
+# straw_cen$strawberries |> str_which("PROCESSING") |> length()
+
+straw_cen <- straw_cen |>
+  separate_wider_delim(  cols = strawberries,
+                         delim = ", ",
+                         names = c("strawberries",
+                                 "ORGANIC",
+                                 "organic_detail"),
+                         
+                         too_many = "error",
+                         too_few = "align_start"
+                       )
+
+
+straw_cen <- straw_cen |> drop_one_value_col()
+
+## how many organic rows?
+
+organic_cen <- straw_cen |> filter(ORGANIC == "ORGANIC")
+
+sum(is.na(straw_cen$ORGANIC))
+
+straw_cen <- straw_cen[(is.na(straw_cen$ORGANIC)),]
+
+
+straw_cen <- straw_cen |> drop_one_value_col()
+```
+
+Make Bearning Type 
+
+```{r}
+#| label: explore straw_cen$Category
+
+straw_cen <- straw_cen |>
+  separate_wider_delim(  cols = `Category`,
+                         delim = " ",
+                         names = c("COL1",
+                                 "COL2"),
+                         too_many = "merge",
+                         too_few = "align_start"
+                       )
+
+
+straw_cen$COL2 <- str_replace(straw_cen$COL2,"WITH ","")
+
+straw_cen <- straw_cen |> rename(Measure = COL1, Bearing_type= COL2)
+```
+
+Split Domain category 
+
+```{r}
+#| label: explore straw_cen$Domain & Domain Category
+
+
+## remove AREA GROWN and parens 
+## change NOT SPECIFIEC TO TOTAL
+
+straw_cen <- straw_cen |> rename(size_bracket = `Domain Category`)
+
+straw_cen$size_bracket <- str_replace(straw_cen$size_bracket, "NOT SPECIFIED", "TOTAL")
+
+straw_cen$size_bracket <- str_replace(straw_cen$size_bracket, "AREA GROWN: ", "")
+```
+
+
+
+```{r}
+organic_cen <- organic_cen |> drop_one_value_col()
+
+```
+clean "Category" column
+
+```{r}
+organic_cen <- organic_cen %>%
+  separate(Category, into = c("Category", "measurement"), sep = " MEASURED ", extra = "merge", fill = "right")
+```
+
+get rid of commas and 'IN"
+
+```{r}
+organic_cen$Category <- gsub(",", "", organic_cen$Category)
+organic_cen$measurement <- gsub("IN", "", organic_cen$measurement, ignore.case = TRUE)
+```
+
+
+## plots
+
+```{r}
+#|label: plot 1
+
+plot1_data <- strawberry |> 
+  select(c(Year, State, Category, Value)) |> 
+  filter((Year == 2021) & (Category == "ORGANIC - OPERATIONS WITH SALES"))
+
+plot1_data$Value <- as.numeric(plot1_data$Value)
+
+plot1_data <- plot1_data |> arrange(desc(Value))
+
+ggplot(plot1_data, aes(x=reorder(State, -Value), y=Value)) + 
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x=element_text(angle=45,hjust=1)) +
+  labs(x = "States", y = "Count",
+title ="Number of Organic Strawberry operations with Sales in 2021")
+
+
+```
+
+```{r}
+## plot 2
+
+plot2_data <- strawberry |> 
+  select(c(Year, State, Category, Item, Value)) |> 
+  filter((Year == 2021) & 
+           (Category == "ORGANIC - SALES") & 
+           (Item == "MEASURED IN $") & 
+           (Value != "(D)"))
+
+
+plot2_data$Value <- as.numeric(gsub(",", "", plot2_data$Value))
+
+plot2_data <- plot1_data |> arrange(desc(Value))
+
+ggplot(plot2_data, aes(x=reorder(State, -Value), y=Value)) + 
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x=element_text(angle=45,hjust=1)) +
+  labs(x = "States", y = "Sales",
+title ="Organic Strawberry Sales ($) in 2021")
+
+
+```
