@@ -173,10 +173,18 @@ Checking through the data. We realize the "Category" Column has some unnecessary
 ```{r}
 straw_sur$category <- gsub(",", "", straw_sur$category)
 ```
+The last thing we want to do is split this into two tables at the domain column. One for total and one for chemical. We can call these tables sur_total and sur_chem. 
 
-Our survey data now looks pretty clean
+```{r}
+sur_total <- straw_sur %>% filter(Domain == "TOTAL")
+sur_chem <- straw_sur %>% filter(Domain == "CHEMICAL")
+sur_total = drop_one_value_col(sur_total)
+sur_chem = drop_one_value_col(sur_chem)
+```
 
-And we can move on to the Census data 
+Our survey is now split into two data tables, sur_total and sur_chemical and looks clean.
+
+Now we can move on to the Census data 
 
 We again see that Data Item column in this data frame contains multiple information. 
 
@@ -198,17 +206,6 @@ We now want to create a table of just the "organic" strawberry sales, so we can 
 ```{r}
 #| label: isolate organic
 
-# 
-# unique(straw_cen$strawberries)
-# straw_cen$strawberries |> str_which("STRAWBERRIES") |> length()
-# straw_cen$strawberries |> str_which("STRAWBERRIES, ORGANIC") |> length()
-# straw_cen$strawberries |> str_which("STRAWBERRIES, ORGANIC, FRESH MARKET") |> length()
-# straw_cen$strawberries |> str_which("STRAWBERRIES, ORGANIC, PROCESSING" ) |> length()
-# 
-# ## count the cases
-# straw_cen$strawberries |> str_which("ORGANIC") |> length()
-# straw_cen$strawberries |> str_which("FRESH MARKET") |> length()
-# straw_cen$strawberries |> str_which("PROCESSING") |> length()
 
 straw_cen <- straw_cen |>
   separate_wider_delim(  cols = strawberries,
@@ -285,11 +282,32 @@ organic_cen <- organic_cen %>%
   separate(Category, into = c("Category", "measurement"), sep = " MEASURED ", extra = "merge", fill = "right")
 ```
 
-get rid of commas and 'IN" from thie new columnso it is just units again. 
+get rid of commas and 'IN" from the new column it is just units again. 
 
 ```{r}
 organic_cen$Category <- gsub(",", "", organic_cen$Category)
 organic_cen$measurement <- gsub("IN", "", organic_cen$measurement, ignore.case = TRUE)
+```
+
+Get rid of (D) and replace with NA.
+
+```{r}
+#Get rid of D and Z in the value column and replace them as NA
+straw_cen$Value[straw_cen$Value == "(D)"] <- NA
+straw_cen$Value[straw_cen$Value == "(Z)"] <- NA
+
+# create a new dataframe dropping the NA rows from straw_cen
+no_NA <- na.omit(straw_cen)
+
+#make the Value column numeric in order to run a model
+no_NA$Value <- as.numeric(gsub(",", "", no_NA$Value))
+fit1 = lm(Value ~ Measure + Bearing_type + State + size_bracket, data = no_NA)
+```
+
+We are going to try to fill in some of the missing 'Value' data.
+
+```{r}
+
 ```
 
 We now have three cleaned tables. One called straw_sur with chemical data, one called straw_cen with non-organic sales data, and one called organic_cen with organic sales data. 
