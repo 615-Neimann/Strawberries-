@@ -399,7 +399,7 @@ fill_na_non_bearing_values <- function(df) {
 
 ```
 
-last we apply both functions to the straw_cen data to fill in some of the NA's with the correct ratios based on the total numbers. 
+last we apply both functions to the straw_cen data to fill in some of the NA's with the correct ratios based on the total numbers. It should be noted that the function does not work for states that did not have total values for specific size_brackets 
 
 ```{r}
 straw_cen = fill_na_bearing_values(straw_cen)
