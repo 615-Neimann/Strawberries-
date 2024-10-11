@@ -296,64 +296,110 @@ Get rid of (D) and replace with NA.
 straw_cen$Value[straw_cen$Value == "(D)"] <- NA
 straw_cen$Value[straw_cen$Value == "(Z)"] <- NA
 
-# create a new dataframe dropping the NA rows from straw_cen
-no_NA <- na.omit(straw_cen)
 
-#make the Value column numeric in order to run a model
-no_NA$Value <- as.numeric(gsub(",", "", no_NA$Value))
-fit1 = lm(Value ~ Measure + Bearing_type + State + size_bracket, data = no_NA)
 ```
+We now have four cleaned tables. One called sur_chem with chemical data, one called sur_total with total survey data, one called straw_cen with non-organic sales data, and one called organic_cen with organic sales data. 
 
-We are going to try to fill in some of the missing 'Value' data.
+We are going to try to fill in some of the missing 'Value' data. First we need to make sure the numbers in the Value column are numeric
 
 ```{r}
 
-```
-
-We now have three cleaned tables. One called straw_sur with chemical data, one called straw_cen with non-organic sales data, and one called organic_cen with organic sales data. 
-
-## plots
-
-```{r}
-#|label: plot 1
-
-plot1_data <- strawberry |> 
-  select(c(Year, State, Category, Value)) |> 
-  filter((Year == 2021) & (Category == "ORGANIC - OPERATIONS WITH SALES"))
-
-plot1_data$Value <- as.numeric(plot1_data$Value)
-
-plot1_data <- plot1_data |> arrange(desc(Value))
-
-ggplot(plot1_data, aes(x=reorder(State, -Value), y=Value)) + 
-  geom_bar(stat = "identity") + 
-  theme(axis.text.x=element_text(angle=45,hjust=1)) +
-  labs(x = "States", y = "Count",
-title ="Number of Organic Strawberry operations with Sales in 2021")
+straw_cen <- straw_cen %>%
+  mutate(Value = as.numeric(gsub(",", "", Value)))
 
 
 ```
 
+This took me a while and i used chat GPT for some of it, but we were able to create a function that gets ratios from every state using the total acres grown and the total acres bearing and applies that ratio to the value in total acres grown that matched the same size bracket as a value marked NA. It is not perfect but i checked some of the values and they are fairly accurate. 
+
 ```{r}
-## plot 2
+fill_na_bearing_values <- function(df) {
+  # Create a copy of the data frame to avoid modifying the original
+  df_filled <- df
+  
+  # Get the unique states
+  states <- unique(df$State)
+  
+  for (state in states) {
+    # Filter data for the current state
+    state_data <- df %>% filter(State == state)
+    
+    # Extract the GROWN and BEARING values
+    grown_value <- state_data %>%
+      filter(Bearing_type == "GROWN", Domain == "TOTAL", size_bracket == "TOTAL") %>%
+      pull(Value)
+    
+    bearing_value <- state_data %>%
+      filter(Bearing_type == "BEARING", Domain == "TOTAL", size_bracket == "TOTAL") %>%
+      pull(Value)
+    
+    # Calculate the percentage of bearing strawberries
+    if (length(grown_value) > 0 && length(bearing_value) > 0 && grown_value > 0) {
+      percentage <- bearing_value / grown_value
+    } else {
+      next  # Skip if values are missing
+    }
+    
+    # Fill in NA values for "BEARING" rows where size_bracket matches
+    df_filled <- df_filled %>%
+      mutate(Value = ifelse(is.na(Value) & Bearing_type == "BEARING" & State == state,
+                            percentage * Value[which(Bearing_type == "GROWN" & 
+                                                       size_bracket == size_bracket & 
+                                                       State == state)],
+                            Value))
+  }
+  
+  return(df_filled)
+}
 
-plot2_data <- strawberry |> 
-  select(c(Year, State, Category, Item, Value)) |> 
-  filter((Year == 2021) & 
-           (Category == "ORGANIC - SALES") & 
-           (Item == "MEASURED IN $") & 
-           (Value != "(D)"))
+```
 
+I did the same thig for the non-bearing acres here
+```{r}
+fill_na_non_bearing_values <- function(df) {
+  # Create a copy of the data frame to avoid modifying the original
+  df_filled <- df
+  
+  # Get the unique states
+  states <- unique(df$State)
+  
+  for (state in states) {
+    # Filter data for the current state
+    state_data <- df %>% filter(State == state)
+    
+    # Extract the GROWN and NON-BEARING values
+    grown_value <- state_data %>%
+      filter(Bearing_type == "GROWN", Domain == "TOTAL", size_bracket == "TOTAL") %>%
+      pull(Value)
+    
+    non_bearing_value <- state_data %>%
+      filter(Bearing_type == "NON-BEARING", Domain == "TOTAL", size_bracket == "TOTAL") %>%
+      pull(Value)
+    
+    # Calculate the percentage of non-bearing strawberries
+    if (length(grown_value) > 0 && length(non_bearing_value) > 0 && grown_value > 0) {
+      percentage <- non_bearing_value / grown_value
+    } else {
+      next  # Skip if values are missing
+    }
+    
+    # Fill in NA values for "NON-BEARING" rows where size_bracket matches
+    df_filled <- df_filled %>%
+      mutate(Value = ifelse(is.na(Value) & Bearing_type == "NON-BEARING" & State == state,
+                            percentage * Value[which(Bearing_type == "GROWN" & 
+                                                       size_bracket == size_bracket & 
+                                                       State == state)],
+                            Value))
+  }
+  
+  return(df_filled)
+}
 
-plot2_data$Value <- as.numeric(gsub(",", "", plot2_data$Value))
+```
 
-plot2_data <- plot1_data |> arrange(desc(Value))
+last we apply both functions to the straw_cen data to fill in some of the NA's with the correct ratios based on the total numbers. 
 
-ggplot(plot2_data, aes(x=reorder(State, -Value), y=Value)) + 
-  geom_bar(stat = "identity") + 
-  theme(axis.text.x=element_text(angle=45,hjust=1)) +
-  labs(x = "States", y = "Sales",
-title ="Organic Strawberry Sales ($) in 2021")
-
-
+```{r}
+straw_cen = fill_na_bearing_values(straw_cen)
+straw_cen = fill_na_non_bearing_values(straw_cen)
 ```
