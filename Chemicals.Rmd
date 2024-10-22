@@ -1,0 +1,19 @@
+---
+title: "Chemicals"
+author: "Jonathan Neimann"
+date: "2024-10-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+```
+
+let's find the top 5 applied chemicals from the sur_chem table 
+```{r}
+neem_count <- sum(sur_chem$chemical_name == "CHLOROPICRIN")
+print(neem_count)
+
+```
+
