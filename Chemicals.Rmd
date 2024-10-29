@@ -2,18 +2,267 @@
 title: "Chemicals"
 author: "Jonathan Neimann"
 date: "2024-10-16"
-output: html_document
+output:
+  word_document: default
+  html_document: default
 ---
+
+I was away this past weekend for a wedding and couldn't work on this as much as I had hoped. This
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
+library(ggplot2)
 ```
 
-let's find the top 5 applied chemicals from the sur_chem table 
+# Dedly Chemicals
+
+The first thing we are going to do is make a dataset containing all rows dealing with the 6 deadly chemicals.
+
 ```{r}
-neem_count <- sum(sur_chem$chemical_name == "CHLOROPICRIN")
-print(neem_count)
+sur_chem = read.csv("sur_chem.csv")
+deadly_chemicals <- c("CAPTAFOL", "ETHYL (2E;4Z)-DECADIENOATE", "GLYPHOSATE ISO. SALT", "MALATHION", "DIAZINON")
+deadly <- subset(sur_chem, chemical_name %in% deadly_chemicals)
 
 ```
 
+I then whant to see how many times these chemicals come up and break it down by state
+
+```{r}
+chemical_counts <- deadly %>%
+  group_by(State, chemical_name) %>%
+  summarise(count = n(), .groups = 'drop')
+
+```
+
+This bar chart shows us how many times each chemical name shows up in our new dataframe. We can see that the only states that use any of these chemicals are California and Florida which makes sense as that is where the most strawberries are frown
+
+```{r}
+
+ggplot(chemical_counts, aes(x = chemical_name, y = count, fill = State)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Occurrences of Each Chemical Name by State", x = "Chemical Name", y = "Count") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Malathion
+
+For this EDA i am focusing on the chemical Malathion as it contains the most data of the chemicals listed here. What i found interesting is that there is a value indicting the percent of area bearing strawberries in California that use this chemical as an Insecticide by year. We are going to use the most recent year from this (2023)
+
+We are going to use the California average of 40,000 acres of strawberries grown per year for some quick math
+
+```{r}
+mal_cal_pct = 40000 * .19
+print(mal_cal_pct)
+
+```
+
+So 7600 acres of strawberries in california used this chemical as an insecticide. So what does that mean?
+
+Well let's compare it to all insecticide's used in california, we can make a dataframe for that
+
+```{r}
+california_insecticide <- subset(sur_chem, State == "CALIFORNIA" & use == " INSECTICIDE")
+```
+
+use unique to figure out how many insecticides were used in califoria
+
+```{r}
+unique(california_insecticide$chemical_name)
+```
+
+This tells us there are 55 different insecticides used. That seems like too many to compare so lets get the top 5
+
+```{r}
+
+# Replace (D) with NA in the 'Value' column of california_insecticide
+california_insecticide$Value[california_insecticide$Value == "(D)"] <- NA
+
+# Remove commas and convert Value to numeric
+california_insecticide$Value <- as.numeric(gsub(",", "", california_insecticide$Value))
+
+# Remove rows where Value is NA
+california_insecticide <- california_insecticide %>% filter(!is.na(Value))
+
+california_insecticide$category <- trimws(california_insecticide$category)
+
+top_chemicals <- california_insecticide %>%
+  filter(category == "BEARING - TREATED", 
+         measurement == "PCT OF AREA BEARING, AVG", 
+         chemical_name != "CHEMICAL", 
+         Year == 2023) %>%  # Include only rows where year is 2023
+  arrange(desc(Value)) %>%  # Arrange by Value in descending order
+  select(chemical_name, Value) %>%  # Select only chemical_name and Value columns
+  head(5) 
+
+print(top_chemicals)
+```
+
+so this gives us our top 5 insecticides in California based on percent used of bearing treated acres of strawberries.
+
+# Effects of These Insecticides
+
+We know that Malathion is ine of the 6 deadly chemicals that is used in strawberries, but what are it's actual effects and how does it compare to these other insecticides?
+
+We have built a function that used PubChem to look up the effects of these chemicals. I displayed the results for Malathion below.
+
+```{r}
+library(tidyverse)
+library(PubChemR)
+
+GHS_searcher<-function(result_json_object){
+  result<-result_json_object
+  for (i in 1:length(result[["result"]][["Hierarchies"]][["Hierarchy"]])){
+    if(result[["result"]][["Hierarchies"]][["Hierarchy"]][[i]][["SourceName"]]=="GHS Classification (UNECE)"){
+      return(i)
+    }
+          
+  }
+}
+```
+
+```{r}
+hazards_retriever<-function(index,result_json_object){
+  result<-result_json_object
+  hierarchy<-result[["result"]][["Hierarchies"]][["Hierarchy"]][[index]]
+  i<-1
+  output_list<-rep(NA,length(hierarchy[["Node"]]))
+  while(str_detect(hierarchy[["Node"]][[i]][["Information"]][["Name"]],"H") & i<length(hierarchy[["Node"]])){
+    output_list[i]<-hierarchy[["Node"]][[i]][["Information"]][["Name"]]
+    i<-i+1
+  }
+  return(output_list[!is.na(output_list)])
+}
+```
+
+```{r}
+result_d<-get_pug_rest(identifier = "Malathion", namespace = "name", domain = "compound",operation="classification", output = "JSON")
+
+hazards_retriever(GHS_searcher(result_d),result_d)
+```
+
+These are some fairly serious hazards, but what i am going to focus one if one of the effects, which I found was also prevelant in the insectisides Methoxyfenozide and Bidenazate from our list as well, which is that they are very toxic to aquatic life.
+
+# Aquatic Chemicals EDA
+
+Let's break down some more numbers
+
+After some googling, the average number of pounds of strawberries produced per acre is about 50,000 pounds. So let's compare some numbers. first let's add Malathion to our data_frame and create a new table called aquatic_chemicals with the three we are looking at.
+
+```{r}
+new_row <- data.frame(chemical_name = "MALATHION", Value = 19)
+
+# Add the new row to the top_chemicals dataframe
+top_chemicals <- rbind(top_chemicals, new_row)
+
+print(top_chemicals)
+```
+
+```{r}
+aquatic_chemicals <- top_chemicals %>%
+  filter(chemical_name %in% c("MALATHION", "METHOXYFENOZIDE", "BIFENAZATE"))
+```
+
+Let's first make a chart showing the total number of acres that used these chemicals in 2023
+
+```{r}
+aquatic_chemicals$total_acres <- (aquatic_chemicals$Value / 100) * 40000
+
+ggplot(aquatic_chemicals, aes(x = chemical_name, y = total_acres, fill = chemical_name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total acres Insecticides",
+       x = "Chemical Name",
+       y = "Total acres used") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma) +  # Format y-axis labels with commas
+  scale_fill_brewer(palette = "Set3")
+```
+
+we can add another value to this dataframe showing the total pounds of strawberries using these chemicals. And a chart that displays the total pounds of strawberries that use these chemicals.
+
+```{r}
+aquatic_chemicals$total_pounds <- (aquatic_chemicals$total_acres) * 50000
+
+
+```
+
+```{r}
+ggplot(aquatic_chemicals, aes(x = chemical_name, y = total_pounds, fill = chemical_name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(total_pounds)), vjust = -0.5) +  # Add labels with commas
+  labs(title = "Total Pounds of Strawberries that use Harmful Aquatic Insectisides",
+       x = "Chemical Name",
+       y = "Total Pounds") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma) +  # Format y-axis labels with commas
+  scale_fill_brewer(palette = "Set3")  # Optional: color palette for the bars
+```
+
+And the percentages of strawberries grown that use these chemicals
+
+```{r}
+aquatic_chemicals$total_percent <- (aquatic_chemicals$total_pounds / 2000000000) * 100
+
+ggplot(aquatic_chemicals, aes(x = reorder(chemical_name, total_percent), y = total_percent, fill = chemical_name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(total_percent, 0), "%")), hjust = -0.1) +  # Add percentage labels next to the bars
+  labs(title = "Percentage of Strawberries in California Using These Insecticides",
+       x = "Chemical Name",
+       y = "Percent of Strawberries") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +  # Format y-axis labels as percentages
+  scale_fill_brewer(palette = "Set3") +  
+  coord_flip()
+```
+
+However this does not tell the full story. According to research, there are about .3 pounds of chemicals used for every pound of strawberries grown. So let's update the total pounds chart.
+
+```{r}
+ggplot(aquatic_chemicals, aes(x = chemical_name, y = total_pounds * 0.3, fill = chemical_name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(round(total_pounds * 0.3, 0))), vjust = -0.5) +  # Add labels above bars
+  labs(title = "Total Pounds of Dangerous Aquatic Chemicals",
+       x = "Chemical Name",
+       y = "Total Pounds") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma) +  # Format y-axis labels with commas
+  scale_fill_brewer(palette = "Set3")  # Optional: color palette for the bars
+```
+
+So added together that is 876 Million Pounds of these harmful aquatic chemicals used on Strawerries in California in 2023.
+
+# Consequences
+
+So what is the effect of 876 million pounds of these chemicals?
+
+Since A large amount of California's strawberries are grown on the coast via the image below
+
+![California Strawberry Growth.](https://www.researchgate.net/publication/356648088/figure/fig1/AS:1097653836365825@1638712476479/Sites-of-strawberry-production-in-California.png)
+
+This could potentially be very dangerous to the Aquatic life off the coast of California. However the main way that these chemicals could get into the ocean would be via rain. Which is very low in the area. 
+
+In fact the average rainfall in California is between 2018 and 2023 was just over 21 inches per year as seen in this chart. 
+
+```{r}
+rainfall <- read_csv("data-BEa5S.csv")
+rainfall_filtered <- rainfall %>%
+  filter(Year >= 2018 & Year <= 2023)
+
+# Calculate the average precipitation for these years
+average_precip <- mean(rainfall_filtered$`Precipitation (inches)`, na.rm = TRUE)
+
+# Create the chart
+ggplot(rainfall_filtered, aes(x = Year, y = `Precipitation (inches)`)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = average_precip, color = "red", linetype = "dashed", size = 1) +
+  geom_text(aes(label = round(`Precipitation (inches)`, 1)), vjust = -0.5, size = 3.5) +  # Show values on top of bars
+  labs(title = "California Rainfall Totals (2018 - 2023)",
+       x = "Year",
+       y = "Precipitation (inches)") +
+  annotate("text", x = 2020, y = average_precip + 1, label = paste("Avg:", round(average_precip, 1), "inches"), color = "red") +
+  theme_minimal()
+
+```
+That is a rate of just .05 inches of rainfall per day. According to studies it takes over an inch of rainfall to wash away any pesticides off of plants and fruits meaning that these dangerous insectisides put on Strawberries in California are most likely not washed into nearby rivers, lakes or oceans. 
